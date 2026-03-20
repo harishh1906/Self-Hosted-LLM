@@ -1,0 +1,16 @@
+# Virtual env
+hf-venv/
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Env files
+.env
+
+# Models (optional - if large)
+models/

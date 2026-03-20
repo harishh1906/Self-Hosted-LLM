@@ -1,0 +1,12 @@
+
+ollama
+fastapi
+uvicorn
+requests
+pydantic
+sentence-transformers
+qdrant-client==1.9.1
+
+sqlalchemy
+psycopg2-binary
+python-jose[cryptography]

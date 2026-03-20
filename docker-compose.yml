@@ -1,0 +1,51 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: virtue-ollama
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_PARALLEL: 1
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+  advisory-api:
+    build: ./advisory-api
+    container_name: virtue-advisory
+    restart: unless-stopped
+    depends_on:
+      - ollama
+      - qdrant
+      - postgres
+    environment:
+      SERVICE_SECRET_KEY: ${SERVICE_SECRET_KEY:-CHANGE_THIS_IN_PRODUCTION}
+    ports:
+      - "8000:8000"
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.1
+    container_name: virtue-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  postgres:
+    image: postgres:15
+    container_name: virtue-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: virtue
+      POSTGRES_USER: virtue
+      POSTGRES_PASSWORD: virtuepass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  ollama:
+  qdrant_data:
+  postgres_data:
