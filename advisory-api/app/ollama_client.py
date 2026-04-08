@@ -14,7 +14,7 @@ MAX_RETRIES = 1  # No retry storm - Phi-3 responds in <10s normally
 INITIAL_BACKOFF = 0.5  # seconds
 BACKOFF_MULTIPLIER = 2.0
 MAX_BACKOFF = 4.0  # seconds
-REQUEST_TIMEOUT = 12  # Phi-3 responds in <10s normally
+REQUEST_TIMEOUT = 60  # Phi-3 responds in <10s normally
 
 def query_llm(
     prompt: str,
@@ -156,7 +156,7 @@ def _query_llm_with_retry(
                 "stream": False,
                 "format": "json",  # Force JSON output mode
                 "options": {
-                    "num_predict": 512,  # Limit token output (prevents long-running generations)
+                    "num_predict": 256,  # Limit token output (prevents long-running generations)
                     "temperature": 0.2,  # Lower temperature for more deterministic output
                     "num_ctx": 2048  # Reduced context window for faster processing
                 }

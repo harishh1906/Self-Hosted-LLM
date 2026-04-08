@@ -34,7 +34,14 @@ def retrieve_context(query: str, org_id: str = None) -> tuple[str, bool]:
             r.payload["text"] for r in results if "text" in r.payload
         )
 
-        return context, True
+        # If we used an org_id filter and got no matches, fall back to shared KB.
+        if not context and org_id is not None:
+            results = search_similar(vector, org_id=None)
+            context = "\n".join(
+                r.payload["text"] for r in results if "text" in r.payload
+            )
+
+        return context, bool(context)
     except Exception as e:
         # Graceful degradation: RAG unavailable but service continues
         logger.warning(
