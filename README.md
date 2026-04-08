@@ -67,6 +67,7 @@ All AI output is enriched with **Retrieval-Augmented Generation (RAG)** from a s
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | **API Server** | FastAPI (Python) | REST API, routing, middleware |
+| **Frontend UI** | React + Vite | Premium interactive UI with glassmorphism |
 | **Local LLM** | Ollama + Phi-3 Mini | On-prem advisory generation |
 | **Vector DB** | Qdrant | RAG knowledge retrieval |
 | **Database** | PostgreSQL 15 | Audit logs, analytics, policies |
@@ -149,7 +150,19 @@ This starts:
 docker exec virtue-ollama ollama pull phi3:mini
 ```
 
-### 5. Test It!
+### 5. Start the React Frontend
+
+Open a new terminal and start the UI:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The beautiful interactive UI will now be running at **http://localhost:5173**. 
+Simply click **"Fill Sample Data"** and then **"Generate AI Advisory"** to test it out!
+
+### 6. Test the API directly (Optional)
 ```bash
 # Get a token
 TOKEN=$(curl -s -X POST "http://localhost:8000/login?username=demo&org_id=demo-org" | jq -r .access_token)
@@ -168,7 +181,7 @@ curl -X POST http://localhost:8000/analyze \
   }'
 ```
 
-### 6. View API Docs
+### 7. View API Docs
 Open `http://localhost:8000/docs` in your browser.
 
 ---
@@ -363,6 +376,12 @@ Access via `http://your-server-ip:8000`
 ├── docker-compose.yml          # Full stack orchestration
 ├── .env.example                # Environment variable template
 ├── railway.toml                # Railway deployment config
+├── frontend/                   # 🌟 NEW: Beautiful React UI
+│   ├── src/
+│   │   ├── App.jsx             # Main dashboard UI
+│   │   └── index.css           # Premium glassmorphism styles
+│   ├── package.json            # React deps
+│   └── vite.config.js          # Vite configuration
 └── advisory-api/
     ├── Dockerfile              # Production container
     ├── requirements.txt        # Python dependencies

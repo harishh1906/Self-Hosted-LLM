@@ -422,29 +422,38 @@ class TestCircuitBreaker:
     """Test circuit breaker state machine."""
 
     def test_circuit_breaker_starts_closed(self):
-        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=5)
+        cb = CircuitBreaker(failure_threshold=0.5, time_window_seconds=5, min_requests=3)
         state = cb.get_state()
         assert state["state"] == "closed"
 
     def test_circuit_opens_after_failure_threshold(self):
-        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=5)
+        cb = CircuitBreaker(failure_threshold=0.5, time_window_seconds=5, min_requests=3)
         for _ in range(3):
             cb.record_request(success=False, failed=True)
         state = cb.get_state()
         assert state["state"] == "open"
 
     def test_circuit_records_success(self):
-        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=5)
+        cb = CircuitBreaker(failure_threshold=0.5, time_window_seconds=5, min_requests=3)
         cb.record_request(success=True, failed=False)
         state = cb.get_state()
         assert state["state"] == "closed"
-        assert state["failure_count"] == 0
+        assert state["failures"] == 0
 
     def test_circuit_half_open_after_recovery_timeout(self):
-        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=1)
-        cb.record_request(success=False, failed=True)
+        cb = CircuitBreaker(failure_threshold=0.5, time_window_seconds=1, min_requests=3)
+        for _ in range(3):
+            cb.record_request(success=False, failed=True)
+        
+        assert cb.get_state()["state"] == "open"
         time.sleep(1.1)
+        
+        # After time window, a new failure-free check causes half-open on next evaluation
+        for _ in range(3):
+            cb.record_request(success=True, failed=False)
+        
         state = cb.get_state()
+        # Should have transitioned or resolved
         assert state["state"] in ["half_open", "closed"]
 
 
