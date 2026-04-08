@@ -51,6 +51,7 @@ const MOCK_DATA = {
     "justification": "Critical severity with high confidence score on a high-criticality asset warrants immediate remediation within 24 hours."
   },
   "demo_mode": true,
+  "is_frontend_mock": true,
   "model_used": "phi3:mini (Standalone UI Demo)"
 };
 
@@ -96,6 +97,32 @@ const MOCK_DATA = {
         setLoading(false);
       }, 1500);
     }
+  };
+
+
+  const getDataSourceInfo = (res) => {
+    if (res.is_frontend_mock) {
+      return { 
+        label: "UI Fallback Mock (Backend Offline)", 
+        color: "var(--color-high)",
+        bg: "rgba(249, 115, 22, 0.15)",
+        border: "rgba(249, 115, 22, 0.3)"
+      };
+    }
+    if (res.demo_mode) {
+      return {
+        label: "Backend Demo Mode",
+        color: "var(--color-medium)",
+        bg: "rgba(234, 179, 8, 0.15)",
+        border: "rgba(234, 179, 8, 0.3)"
+      };
+    }
+    return {
+      label: "Live LLM Generation",
+      color: "var(--accent-cyan)",
+      bg: "rgba(6, 182, 212, 0.15)",
+      border: "rgba(6, 182, 212, 0.3)"
+    };
   };
 
   return (
@@ -201,7 +228,30 @@ const MOCK_DATA = {
               <div className="risk-header">
                 <div>
                   <h2 style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>Advisory Generated</h2>
-                  <div className="model-tag"><Cpu size={14}/> {result.model_used || "phi3:mini"}</div>
+                  <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
+                    <div className="model-tag"><Cpu size={14}/> {result.model_used || "phi3:mini"}</div>
+                    
+                    {/* Perfect Source Verification Badge */}
+                    {(() => {
+                      const sourceInfo = getDataSourceInfo(result);
+                      return (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          background: sourceInfo.bg,
+                          color: sourceInfo.color,
+                          padding: '0.3rem 0.8rem',
+                          borderRadius: '99px',
+                          fontSize: '0.8rem',
+                          border: `1px solid ${sourceInfo.border}`,
+                          fontWeight: '600'
+                        }}>
+                          <Database size={14}/> {sourceInfo.label}
+                        </div>
+                      )
+                    })()}
+                  </div>
                 </div>
                 
                 <div className="risk-score-circle">
