@@ -112,3 +112,58 @@ class RiskAssessment(BaseModel):
     risk_level: str
     sla: str
     justification: str
+
+
+class PolicyProfileUpdate(BaseModel):
+    """Request body for creating/updating an AI policy profile."""
+    org_id: Optional[str] = Field(
+        None,
+        pattern=r'^[a-zA-Z0-9_-]+$',
+        min_length=1,
+        max_length=100,
+        description="Organization ID (can also be inferred from JWT token)"
+    )
+    risk_tolerance: str = Field(
+        default="medium",
+        description="Risk tolerance: low | medium | high"
+    )
+    verbosity: str = Field(
+        default="balanced",
+        description="Response verbosity: concise | balanced | detailed"
+    )
+    compliance_mode: str = Field(
+        default="none",
+        description="Compliance framework: none | soc2 | iso | hipaa"
+    )
+    remediation_style: str = Field(
+        default="practical",
+        description="Remediation style: practical | strict | educational"
+    )
+
+    @validator('risk_tolerance')
+    def validate_risk_tolerance(cls, v):
+        valid = ["low", "medium", "high"]
+        if v not in valid:
+            raise ValueError(f"risk_tolerance must be one of {valid}")
+        return v
+
+    @validator('verbosity')
+    def validate_verbosity(cls, v):
+        valid = ["concise", "balanced", "detailed"]
+        if v not in valid:
+            raise ValueError(f"verbosity must be one of {valid}")
+        return v
+
+    @validator('compliance_mode')
+    def validate_compliance_mode(cls, v):
+        valid = ["none", "soc2", "iso", "hipaa"]
+        if v not in valid:
+            raise ValueError(f"compliance_mode must be one of {valid}")
+        return v
+
+    @validator('remediation_style')
+    def validate_remediation_style(cls, v):
+        valid = ["practical", "strict", "educational"]
+        if v not in valid:
+            raise ValueError(f"remediation_style must be one of {valid}")
+        return v

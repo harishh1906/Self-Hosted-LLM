@@ -1,18 +1,23 @@
 import logging
 import time
 import uuid
+import os
 from fastapi import FastAPI, Depends, HTTPException, Request, Query
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from app.schemas import FindingInput
+from app.schemas import FindingInput, PolicyProfileUpdate
 from app.advisory_engine import generate_advisory
 from app.db.database import Base, engine, get_db
 from app.db import models  # REQUIRED: forces model registration
-from app.db.crud import create_advisory, create_audit_log
+from app.db.crud import create_advisory, create_audit_log, create_or_update_policy_profile, get_policy_profile
 from app.vector_store import init_collection
 from app.auth.dependencies import get_current_user_or_service
 from app.auth.jwt import create_access_token
-from app.config import MODEL_VERSION, PROMPT_VERSION, GUARDRAIL_VERSION
+from app.config import MODEL_VERSION, PROMPT_VERSION, GUARDRAIL_VERSION, DEMO_MODE, RATE_LIMIT_PER_MINUTE
 from app.health import get_readiness_status
 from app.metrics import metrics
 from app.circuit_breaker import circuit_breaker
@@ -33,7 +38,7 @@ from app.model_health_summary import get_model_health_summary
 
 # Configure structured logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.getenv("LOG_LEVEL", "INFO"),
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -41,20 +46,71 @@ logger = logging.getLogger(__name__)
 # Create database tables on startup (must be after models are imported)
 Base.metadata.create_all(bind=engine)
 
+# ─── Rate Limiter ───────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
+# ─── FastAPI App ────────────────────────────────────────────
 app = FastAPI(
     title="VirtueThreatX Advisory API",
     version="0.3.0",
-    description="On-prem AI advisory and risk assessment engine"
+    description=(
+        "Self-hosted on-prem AI advisory and risk assessment engine. "
+        "Analyzes security findings using local LLMs (Phi-3 via Ollama) "
+        "with full multi-tenancy, policy governance, and drift detection."
+    ),
+    contact={
+        "name": "Harish",
+        "url": "https://github.com/harishh1906/Self-Hosted-LLM"
+    },
+    license_info={"name": "MIT"},
+    openapi_tags=[
+        {"name": "Health", "description": "Health and readiness checks"},
+        {"name": "Auth", "description": "Authentication"},
+        {"name": "Advisory", "description": "Security finding analysis"},
+        {"name": "Policy", "description": "AI policy profile management"},
+        {"name": "Governance", "description": "Model governance and analytics"},
+        {"name": "Internal", "description": "Internal metrics and control plane"}
+    ]
+)
+
+# ─── Rate Limiting Middleware ────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ─── CORS Middleware ─────────────────────────────────────────
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.on_event("startup")
 def startup_event():
+    """Initialize Qdrant collection and bootstrap knowledge base on startup."""
     init_collection()
+    # Seed the RAG knowledge base (skips if already seeded or Qdrant unavailable)
+    try:
+        from app.bootstrap_knowledge import bootstrap
+        bootstrap()
+        logger.info("Knowledge base bootstrapped successfully")
+    except Exception as e:
+        logger.warning(f"Knowledge base bootstrap failed (non-blocking): {e}")
+    
+    if DEMO_MODE:
+        logger.warning("🔶 DEMO_MODE is ACTIVE — mock advisory responses will be returned")
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 def health_check():
     """Public health check endpoint."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "version": "0.3.0",
+        "demo_mode": DEMO_MODE,
+        "model": MODEL_VERSION
+    }
 
 @app.get("/internal/health")
 def internal_health_check():
@@ -532,16 +588,159 @@ def get_model_config(
     else:
         return configs
 
-@app.post("/login")
-def login(username: str, role: str = "security_analyst"):
+@app.post("/login", tags=["Auth"])
+def login(username: str, role: str = "security_analyst", org_id: str = "demo-org"):
     """
-    Generate JWT token for testing.
-    In production, this should validate credentials against a user database.
+    Generate JWT token for testing/demo.
+    In production, validate credentials against a user database.
     """
-    token = create_access_token(data={"sub": username, "role": role})
+    token = create_access_token(data={"sub": username, "role": role, "org_id": org_id})
     return {"access_token": token, "token_type": "bearer"}
 
-@app.post("/analyze")
+
+# ─── Policy Management Endpoints ─────────────────────────────
+
+@app.get("/api/v1/ai/governance/policy/{org_id}", tags=["Policy"])
+def get_policy(
+    org_id: str,
+    identity: dict = Depends(get_current_user_or_service),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the AI policy profile for an organization.
+    Controls risk_tolerance, verbosity, compliance_mode, and remediation_style.
+    """
+    requester_org = identity.get("org_id")
+    if requester_org and requester_org != org_id:
+        raise HTTPException(status_code=403, detail="Cannot access policy for another organization")
+    
+    policy = get_policy_profile(db, org_id)
+    if not policy:
+        return {
+            "org_id": org_id,
+            "risk_tolerance": "medium",
+            "verbosity": "balanced",
+            "compliance_mode": "none",
+            "remediation_style": "practical",
+            "source": "default"
+        }
+    return {
+        "org_id": policy.org_id,
+        "risk_tolerance": policy.risk_tolerance,
+        "verbosity": policy.verbosity,
+        "compliance_mode": policy.compliance_mode,
+        "remediation_style": policy.remediation_style,
+        "created_at": policy.created_at.isoformat() if policy.created_at else None,
+        "updated_at": policy.updated_at.isoformat() if policy.updated_at else None,
+        "source": "database"
+    }
+
+
+@app.post("/api/v1/ai/governance/policy", tags=["Policy"])
+def create_policy(
+    profile: "PolicyProfileUpdate",
+    identity: dict = Depends(get_current_user_or_service),
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update the AI policy profile for an organization.
+    
+    Controls how the LLM generates advisories:
+    - **risk_tolerance**: low | medium | high
+    - **verbosity**: concise | balanced | detailed
+    - **compliance_mode**: none | soc2 | iso | hipaa
+    - **remediation_style**: practical | strict | educational
+    """
+    org_id = profile.org_id or identity.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="org_id is required")
+    
+    requester_org = identity.get("org_id")
+    if requester_org and requester_org != org_id:
+        raise HTTPException(status_code=403, detail="Cannot modify policy for another organization")
+    
+    updated = create_or_update_policy_profile(
+        db=db,
+        org_id=org_id,
+        risk_tolerance=profile.risk_tolerance,
+        verbosity=profile.verbosity,
+        compliance_mode=profile.compliance_mode,
+        remediation_style=profile.remediation_style
+    )
+    return {
+        "status": "ok",
+        "org_id": updated.org_id,
+        "risk_tolerance": updated.risk_tolerance,
+        "verbosity": updated.verbosity,
+        "compliance_mode": updated.compliance_mode,
+        "remediation_style": updated.remediation_style
+    }
+
+
+@app.delete("/api/v1/ai/governance/policy/{org_id}", tags=["Policy"])
+def delete_policy(
+    org_id: str,
+    identity: dict = Depends(get_current_user_or_service),
+    db: Session = Depends(get_db)
+):
+    """
+    Reset the AI policy profile for an organization to system defaults.
+    """
+    from app.db.models import AIPolicyProfile
+    requester_org = identity.get("org_id")
+    if requester_org and requester_org != org_id:
+        raise HTTPException(status_code=403, detail="Cannot delete policy for another organization")
+    
+    policy = get_policy_profile(db, org_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail=f"No custom policy found for org_id: {org_id}")
+    
+    db.delete(policy)
+    db.commit()
+    from app.policy_loader import policy_cache
+    policy_cache.invalidate(org_id)
+    return {"status": "deleted", "org_id": org_id, "message": "Policy reset to system defaults"}
+
+
+# ─── Demo / Showcase Endpoint ────────────────────────────────
+
+@app.post("/demo/analyze", tags=["Advisory"])
+@limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
+def demo_analyze(request: Request):
+    """
+    **Demo endpoint** — returns a pre-generated advisory response without auth.
+    Use this to showcase the API on your live demo / resume link.
+    No authentication required. Rate limited to prevent abuse.
+    """
+    return {
+        "finding": "SQL Injection in login endpoint",
+        "advisory": {
+            "risk_summary": "A SQL Injection vulnerability was detected in the login endpoint. Attackers can manipulate database queries by injecting malicious SQL through the username or password fields, potentially exposing the entire database.",
+            "business_impact": "Successful exploitation could result in unauthorized access to all user accounts, complete data exfiltration, data tampering, and potential regulatory breach under GDPR/SOC2. Estimated impact: HIGH.",
+            "severity": "Critical",
+            "remediation_steps": [
+                "Immediately implement parameterized queries or prepared statements in all database interactions",
+                "Deploy a Web Application Firewall (WAF) with SQL injection ruleset as an interim control",
+                "Conduct a full code review of all input-handling logic in the authentication module",
+                "Enable database activity monitoring and alerting for anomalous query patterns",
+                "Rotate all database credentials and audit recent access logs for signs of exploitation"
+            ],
+            "confidence": 0.95
+        },
+        "risk_assessment": {
+            "risk_score": 92,
+            "risk_level": "Critical",
+            "sla": "24 hours",
+            "justification": "Critical severity with high confidence score on a high-criticality asset warrants immediate remediation within 24 hours."
+        },
+        "demo_mode": True,
+        "model_used": MODEL_VERSION,
+        "note": "This is a demo response. Deploy with DEMO_MODE=false and a running Ollama instance for live AI-generated advisories."
+    }
+
+
+@app.post("/analyze", tags=["Advisory"])
+@limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
 def analyze_finding(
     finding: FindingInput,
     identity: dict = Depends(get_current_user_or_service),

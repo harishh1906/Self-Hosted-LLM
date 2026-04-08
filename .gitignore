@@ -1,16 +1,53 @@
-# Virtual env
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environments
+.env
+.env.*
+!.env.example
 hf-venv/
+venv/
+env/
+.venv/
+
+# Model files (large binaries - don't commit)
+models/
+*.bin
+*.safetensors
+*.gguf
+*.ggml
 
 # Logs
 logs/
 *.log
 
-# Python
-__pycache__/
-*.pyc
+# Database
+*.db
+*.sqlite3
 
-# Env files
-.env
+# Docker
+.dockerignore
 
-# Models (optional - if large)
-models/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python cache (advisory-api)
+advisory-api/app/__pycache__/
+advisory-api/app/**/__pycache__/
+advisory-api/**/*.pyc
+advisory-api/**/*.pyo

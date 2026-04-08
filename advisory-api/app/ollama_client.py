@@ -1,3 +1,4 @@
+import os
 import requests
 import time
 import logging
@@ -5,16 +6,33 @@ from typing import Dict, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = "http://ollama:11434/api/generate"
-MODEL_NAME = "phi3:mini"
-FALLBACK_MODEL = None  # No fallback - Phi-3 only (prevents cascade failures and RAM explosion)
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434/api/generate")
+MODEL_NAME = os.getenv("MODEL_VERSION", "phi3:mini")
+FALLBACK_MODEL = None  # No fallback — Phi-3 only
 
-# Retry configuration (Production-safe: fail fast, no retry storms)
-MAX_RETRIES = 1  # No retry storm - Phi-3 responds in <10s normally
-INITIAL_BACKOFF = 0.5  # seconds
+# Demo mode: return mock LLM response without calling Ollama
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
+
+DEMO_RESPONSE = """{
+  "risk_summary": "This finding represents a critical security vulnerability that could allow unauthorized access to sensitive system resources. The exposure level is significant based on the nature of the affected component.",
+  "business_impact": "Exploitation of this vulnerability could lead to data breaches, service disruption, and potential regulatory non-compliance penalties. Financial and reputational damage are probable outcomes if left unmitigated.",
+  "severity": "High",
+  "remediation_steps": [
+    "Immediately patch the affected component to the latest stable version",
+    "Implement network-level access controls to restrict exposure",
+    "Enable audit logging on the affected service for forensic readiness",
+    "Conduct a full security review of adjacent components",
+    "Test remediation in a staging environment before production deployment"
+  ],
+  "confidence": 0.87
+}"""
+
+# Retry configuration
+MAX_RETRIES = 1
+INITIAL_BACKOFF = 0.5
 BACKOFF_MULTIPLIER = 2.0
-MAX_BACKOFF = 4.0  # seconds
-REQUEST_TIMEOUT = 60  # Phi-3 responds in <10s normally
+MAX_BACKOFF = 4.0
+REQUEST_TIMEOUT = 60
 
 def query_llm(
     prompt: str,
@@ -25,105 +43,61 @@ def query_llm(
 ) -> Tuple[str, Dict, bool]:
     """
     Query LLM with retry and failover logic.
-    
-    Args:
-        prompt: The prompt to send to the LLM
-        model: Optional model name to use (defaults to MODEL_NAME)
-        fallback_model: Fallback model to use if primary fails
-        org_id: Organization ID for logging
-        correlation_id: Correlation ID for logging
-    
-    Returns:
-        tuple: (response_text, token_usage_dict, used_fallback)
-        - response_text: The LLM response
-        - token_usage_dict: Contains 'prompt_eval_count', 'eval_count', 'total_tokens' if available
-        - used_fallback: True if fallback model was used
+    In DEMO_MODE, returns mock advisory without calling Ollama.
     """
-    # Use provided model or fall back to default (phi3:mini)
+    if DEMO_MODE:
+        logger.info(
+            "DEMO_MODE active — returning mock advisory",
+            extra={"correlation_id": correlation_id, "org_id": org_id}
+        )
+        token_usage = {"prompt_eval_count": 256, "eval_count": 128, "total_tokens": 384}
+        return DEMO_RESPONSE, token_usage, False
+
     model_to_use = model or MODEL_NAME
-    # Fallback disabled - Phi-3 only (no cascade failures)
     fallback_to_use = fallback_model if fallback_model is not None else FALLBACK_MODEL
     used_fallback = False
-    
-    # Try primary model first
+
     try:
         response_text, token_usage = _query_llm_with_retry(
-            prompt=prompt,
-            model=model_to_use,
-            org_id=org_id,
-            correlation_id=correlation_id
+            prompt=prompt, model=model_to_use,
+            org_id=org_id, correlation_id=correlation_id
         )
         return response_text, token_usage, used_fallback
     except Exception as e:
-        # If no fallback available, fail fast with clean error
         if fallback_to_use is None:
             logger.warning(
-                f"Primary model failed after all retries, no fallback configured",
-                extra={
-                    "correlation_id": correlation_id,
-                    "org_id": org_id,
-                    "selected_model": model_to_use,
-                    "primary_model": model_to_use,
-                    "actual_model_used": None,
-                    "error": str(e),
-                    "decision_reason": f"Model {model_to_use} failed, fallback disabled"
-                }
+                "Primary model failed, no fallback configured",
+                extra={"correlation_id": correlation_id, "org_id": org_id,
+                       "selected_model": model_to_use, "error": str(e)}
             )
             raise
-        # If primary model fails after all retries, log WARNING and try fallback ONCE
         if fallback_to_use != model_to_use:
             logger.warning(
-                f"Primary model failed after all retries, attempting fallback",
-                extra={
-                    "correlation_id": correlation_id,
-                    "org_id": org_id,
-                    "selected_model": model_to_use,
-                    "primary_model": model_to_use,
-                    "fallback_model": fallback_to_use,
-                    "error": str(e),
-                    "decision_reason": f"Primary model {model_to_use} failed, using fallback {fallback_to_use}"
-                }
+                "Primary model failed, attempting fallback",
+                extra={"correlation_id": correlation_id, "org_id": org_id,
+                       "primary_model": model_to_use, "fallback_model": fallback_to_use, "error": str(e)}
             )
             used_fallback = True
             try:
-                # Fallback: try once with retry (but only if fallback is different)
                 response_text, token_usage = _query_llm_with_retry(
-                    prompt=prompt,
-                    model=fallback_to_use,
-                    org_id=org_id,
-                    correlation_id=correlation_id
+                    prompt=prompt, model=fallback_to_use,
+                    org_id=org_id, correlation_id=correlation_id
                 )
                 return response_text, token_usage, used_fallback
             except Exception as fallback_error:
-                # Fallback also failed - this is final failure
                 logger.error(
-                    f"Fallback model also failed after all retries",
-                    extra={
-                        "correlation_id": correlation_id,
-                        "org_id": org_id,
-                        "selected_model": model_to_use,
-                        "primary_model": model_to_use,
-                        "fallback_model": fallback_to_use,
-                        "actual_model_used": None,
-                        "error": str(fallback_error),
-                        "decision_reason": f"Both primary {model_to_use} and fallback {fallback_to_use} failed"
-                    },
+                    "Fallback model also failed",
+                    extra={"correlation_id": correlation_id, "org_id": org_id,
+                           "primary_model": model_to_use, "fallback_model": fallback_to_use,
+                           "error": str(fallback_error)},
                     exc_info=True
                 )
                 raise fallback_error
         else:
-            # No fallback available, log WARNING and re-raise original error
             logger.warning(
-                f"Primary model failed after all retries, no fallback available",
-                extra={
-                    "correlation_id": correlation_id,
-                    "org_id": org_id,
-                    "selected_model": model_to_use,
-                    "primary_model": model_to_use,
-                    "actual_model_used": None,
-                    "error": str(e),
-                    "decision_reason": f"Model {model_to_use} failed, no fallback configured"
-                }
+                "Primary model failed, no fallback available",
+                extra={"correlation_id": correlation_id, "org_id": org_id,
+                       "selected_model": model_to_use, "error": str(e)}
             )
             raise
 
@@ -133,109 +107,58 @@ def _query_llm_with_retry(
     org_id: Optional[str] = None,
     correlation_id: Optional[str] = None
 ) -> Tuple[str, Dict]:
-    """
-    Query LLM with exponential backoff retry.
-    
-    Args:
-        prompt: The prompt to send to the LLM
-        model: Model name to use
-        org_id: Organization ID for logging
-        correlation_id: Correlation ID for logging
-    
-    Returns:
-        tuple: (response_text, token_usage_dict)
-    """
     backoff = INITIAL_BACKOFF
     last_exception = None
-    
+
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
-                "format": "json",  # Force JSON output mode
+                "format": "json",
                 "options": {
-                    "num_predict": 256,  # Limit token output (prevents long-running generations)
-                    "temperature": 0.2,  # Lower temperature for more deterministic output
-                    "num_ctx": 2048  # Reduced context window for faster processing
+                    "num_predict": 256,
+                    "temperature": 0.2,
+                    "num_ctx": 2048
                 }
             }
-
             response = requests.post(OLLAMA_URL, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
 
             result = response.json()
             response_text = result.get("response", "")
-            
-            # Extract token usage if available (Ollama API provides these fields)
             prompt_eval_count = result.get("prompt_eval_count") or 0
             eval_count = result.get("eval_count") or 0
-            
+
             token_usage = {
-                "prompt_eval_count": prompt_eval_count if result.get("prompt_eval_count") is not None else None,
-                "eval_count": eval_count if result.get("eval_count") is not None else None,
+                "prompt_eval_count": result.get("prompt_eval_count"),
+                "eval_count": result.get("eval_count"),
                 "total_tokens": prompt_eval_count + eval_count
             }
-            
-            # Log retry if not first attempt
+
             if attempt > 0:
-                logger.info(
-                    f"LLM query succeeded on retry",
-                    extra={
-                        "correlation_id": correlation_id,
-                        "org_id": org_id,
-                        "model": model,
-                        "attempt": attempt + 1
-                    }
-                )
-            
+                logger.info("LLM query succeeded on retry",
+                            extra={"correlation_id": correlation_id, "model": model, "attempt": attempt + 1})
+
             return response_text, token_usage
-            
+
         except requests.exceptions.ReadTimeout as e:
-            # Fail fast on timeout - no retry queue amplification
-            logger.warning(
-                f"LLM timeout — failing fast",
-                extra={
-                    "correlation_id": correlation_id,
-                    "org_id": org_id,
-                    "model": model,
-                    "attempt": attempt + 1,
-                    "timeout": REQUEST_TIMEOUT
-                }
-            )
+            logger.warning("LLM timeout — failing fast",
+                           extra={"correlation_id": correlation_id, "model": model, "timeout": REQUEST_TIMEOUT})
             raise
         except Exception as e:
             last_exception = e
             if attempt < MAX_RETRIES - 1:
-                # Exponential backoff
                 wait_time = min(backoff, MAX_BACKOFF)
-                logger.warning(
-                    f"LLM query failed, retrying",
-                    extra={
-                        "correlation_id": correlation_id,
-                        "org_id": org_id,
-                        "model": model,
-                        "attempt": attempt + 1,
-                        "max_retries": MAX_RETRIES,
-                        "wait_time": wait_time,
-                        "error": str(e)
-                    }
-                )
+                logger.warning("LLM query failed, retrying",
+                               extra={"correlation_id": correlation_id, "model": model,
+                                      "attempt": attempt + 1, "wait_time": wait_time, "error": str(e)})
                 time.sleep(wait_time)
                 backoff *= BACKOFF_MULTIPLIER
             else:
-                # Last attempt failed - log WARNING (fallback will be attempted by caller)
-                logger.warning(
-                    f"LLM query failed after all retries",
-                    extra={
-                        "correlation_id": correlation_id,
-                        "org_id": org_id,
-                        "model": model,
-                        "attempts": MAX_RETRIES,
-                        "error": str(e)
-                    }
-                )
-    
-    # All retries exhausted
+                logger.warning("LLM query failed after all retries",
+                               extra={"correlation_id": correlation_id, "model": model,
+                                      "attempts": MAX_RETRIES, "error": str(e)})
+
     raise last_exception

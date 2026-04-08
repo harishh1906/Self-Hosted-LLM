@@ -1,9 +1,10 @@
+import os
 from datetime import datetime, timedelta
 from jose import jwt
 
-SECRET_KEY = "CHANGE_THIS_IN_PROD"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_THIS_JWT_SECRET_IN_PRODUCTION")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -19,4 +20,3 @@ def decode_access_token(token: str):
         raise ValueError("Token expired")
     except jwt.JWTError:
         raise ValueError("Invalid token")
-
