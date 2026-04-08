@@ -24,7 +24,7 @@ services:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
       ollama:
         condition: service_healthy
     environment:
@@ -43,10 +43,11 @@ services:
       JWT_EXPIRE_MINUTES: 60
       # App
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DEMO_MODE: ${DEMO_MODE:-false}
+      DEMO_MODE: "false"
     ports:
       - "8000:8000"
     volumes:
+      - ./advisory-api/app:/app/app
       - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -63,12 +64,7 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 20s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+
 
   postgres:
     image: postgres:15
