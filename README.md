@@ -11,24 +11,6 @@
 
 > **A fully self-hosted, on-premises AI engine that analyzes security findings from vulnerability scanners and generates structured advisory reports — all without sending data to any cloud AI provider.**
 
----
-
-## 🚀 Live Demo
-
-| Endpoint | URL |
-|----------|-----|
-| 🌐 API Docs (Swagger) | `https://your-deployment.railway.app/docs` |
-| ❤️ Health Check | `https://your-deployment.railway.app/health` |
-| 🎯 Demo Advisory | `POST https://your-deployment.railway.app/demo/analyze` |
-
-```bash
-# Try the live demo instantly — no auth needed:
-curl -X POST https://your-deployment.railway.app/demo/analyze
-```
-
----
-
-## 🧠 What It Does
 
 VirtueThreatX takes raw security findings from scanners (Burp Suite, Nessus, OWASP ZAP, etc.) and uses a **local LLM (Phi-3 Mini via Ollama)** to generate:
 
