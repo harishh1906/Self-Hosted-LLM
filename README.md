@@ -1,4 +1,4 @@
-# 🛡️ VirtueThreatX — Self-Hosted AI Security Advisory Engine
+# 🛡️ Self-Hosted AI Security Advisory Engine
 
 <p align="center">
   <img src="https://img.shields.io/badge/FastAPI-0.100+-green?style=for-the-badge&logo=fastapi" />
@@ -12,7 +12,7 @@
 > **A fully self-hosted, on-premises AI engine that analyzes security findings from vulnerability scanners and generates structured advisory reports — all without sending data to any cloud AI provider.**
 
 
-VirtueThreatX takes raw security findings from scanners (Burp Suite, Nessus, OWASP ZAP, etc.) and uses a **local LLM (Phi-3 Mini via Ollama)** to generate:
+AI takes raw security findings from scanners (Burp Suite, Nessus, OWASP ZAP, etc.) and uses a **local LLM (Phi-3 Mini via Ollama)** to generate:
 
 - 📊 **Risk Summary** — plain-language explanation of the threat
 - 💥 **Business Impact** — financial / reputational consequences
