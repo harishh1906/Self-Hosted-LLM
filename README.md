@@ -29,7 +29,7 @@ All AI output is enriched with **Retrieval-Augmented Generation (RAG)** from a s
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    VirtueThreatX Stack                       │
+│                    AI LLM Stack                       │
 │                                                             │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
 │  │   FastAPI    │───▶│   Ollama     │    │   Qdrant     │  │
@@ -425,7 +425,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 **Harish** — [@harishh1906](https://github.com/harishh1906)
 
-> Built as part of the VirtueThreatX security platform — a production AI-powered security advisory engine for enterprise vulnerability management.
+> Built as part of the security platform — a production AI-powered security advisory engine for enterprise vulnerability management.
 
 ---
 
