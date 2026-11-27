@@ -430,3 +430,49 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 *⭐ Star this repo if you found it useful!*
+
+
+## Local Deployment Verification Runbook
+
+Use this runbook to validate a local deployment without assuming that every optional service is enabled in every environment.
+
+### 1. Prepare configuration
+
+- Review `.env.example` and copy it to a local `.env` when the project configuration expects that file.
+- Set database, vector-store, and model-service values for the local environment.
+- Keep secrets local; do not commit populated environment files, model credentials, or private data.
+
+### 2. Start and inspect services
+
+From the repository root, review `docker-compose.yml` and start the configured services:
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=200
+```
+
+If a service is unhealthy or repeatedly restarts, inspect its logs before proceeding. Use the actual service names and port mappings from the Compose file.
+
+### 3. Verify the application path
+
+1. Confirm the FastAPI process starts and its configured health/readiness route responds.
+2. Open the API's generated documentation using the host and port configured for the API service.
+3. Confirm PostgreSQL is reachable and the application can perform its expected persistence operations.
+4. Confirm Qdrant is reachable and the configured collection/index is available.
+5. Confirm the configured Ollama model is present and the inference service responds to a small, non-sensitive test prompt.
+6. If the project has an observability service enabled, confirm the application can reach it without exposing it beyond the intended network.
+
+### 4. Basic troubleshooting
+
+| Area | What to inspect |
+|---|---|
+| API startup | Container logs, environment variable names, dependency and migration errors. |
+| Database | Connection URL, credentials, host/port reachability, and schema initialization. |
+| Vector retrieval | Qdrant URL, collection name, embedding dimension compatibility, and indexing status. |
+| Model inference | Ollama availability, model name, model download state, memory capacity, and request timeout. |
+| GPU/CPU pressure | Host resource usage and whether concurrent inference is exceeding available memory. |
+
+### 5. Safe test practices
+
+Use synthetic vulnerability descriptions and non-production data for smoke tests. Record the repository revision, configuration profile, and sanitized error output when reporting an issue. Do not describe a local check as a production validation unless it was actually performed in that production environment.
